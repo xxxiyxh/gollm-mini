@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"net/http"
 
 	"gollm-mini/internal/core"
@@ -29,6 +30,7 @@ func Run(ctx context.Context, addr string) error {
 
 	// 健康检查
 	r.GET("/health", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	// 主聊天端点
 	r.POST("/chat", func(c *gin.Context) {
