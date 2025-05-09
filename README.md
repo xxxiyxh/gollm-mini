@@ -36,22 +36,6 @@ gollm-mini -mode=server -port=8080
 > * Go 1.21+
 > * Ollama (for local inference) *or* an OpenAI key
 
----
-
-## Features Matrix
-
-| Capability            | Since | CLI                  | REST API       | Notes                                            |
-| --------------------- | ----- | -------------------- | -------------- | ------------------------------------------------ |
-| Plain Q\&A (Generate) | v0.1  | ✅                    | ✅              | single or multi‑turn                             |
-| Token/Latency Logging | v0.2  | ✅                    | ✅              | standard `log.Printf`                            |
-| Streaming Output      | v0.3  | ✅                    | ✅ (SSE)        | auto‑falls back to sync if provider lacks stream |
-| Provider / Model flag | v0.3  | `-provider` `-model` | body fields    | dynamic change                                   |
-| Memory Truncation     | v0.4  | ✅                    | ✅              | 3k‑token sliding window                          |
-| Retry with Back‑off   | v0.4  | ✅                    | ✅              | 3 tries, exponential                             |
-| JSON Schema Validate  | v0.5  | `-schema`            | `schema` field | auto‑retry until valid                           |
-| RESTful + SSE Server  | v0.6  | —                    | ✅              | `/chat`, `/health`                               |
-
----
 
 ## CLI Usage
 
