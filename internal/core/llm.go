@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"gollm-mini/internal/helper"
+	"gollm-mini/internal/monitor"
 	"log"
 	"time"
 
@@ -50,6 +51,19 @@ func (l *LLM) Generate(ctx context.Context, messages []types.Message) (string, t
 	})
 	dur := time.Since(start)
 
+	//Prometheus
+	status := "ok"
+	if err != nil {
+		status = "error"
+	}
+	monitor.Latency.WithLabelValues(l.name, "generate", status).Observe(dur.Seconds())
+	monitor.Tokens.WithLabelValues(l.name, "prompt").Add(float64(usage.PromptTokens))
+	monitor.Tokens.WithLabelValues(l.name, "completion").Add(float64(usage.CompletionTokens))
+
+	cost := helper.CalcCost(l.name, l.name, usage.PromptTokens, usage.CompletionTokens)
+	if cost > 0 {
+		monitor.CostUSD.WithLabelValues(l.name, l.name).Add(cost)
+	}
 	log.Printf("[LLM] provider=%s prompt=%d completion=%d total=%d latency=%s",
 		l.name, usage.PromptTokens, usage.CompletionTokens, usage.Total(), dur)
 	return txt, usage, err
