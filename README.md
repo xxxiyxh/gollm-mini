@@ -36,6 +36,7 @@ gollm-mini -mode=server -port=8080
 > * Go 1.21+
 > * Ollama (for local inference) *or* an OpenAI key
 
+---
 
 ## CLI Usage
 
@@ -96,15 +97,6 @@ curl -N \
 
 ---
 
-## Roadmap
-
-| Version  | Planned Items                                                    |
-| -------- | ---------------------------------------------------------------- |
-| **v1.0** | Prompt template engine • Optimizer / A‑B • BoltDB template store |
-| **v1.1** | Prometheus metrics • Rate‑limit middleware                       |
-| **v1.2** | Auth (API key) • Web UI playground                               |
-
----
 
 ## Contributing
 
