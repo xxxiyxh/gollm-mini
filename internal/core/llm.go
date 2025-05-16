@@ -23,6 +23,8 @@ type LLM struct {
 
 func (l *LLM) Provider() string { return l.name }
 
+func (l *LLM) Model() string { return l.model }
+
 // New 创建一个 LLM 实例并注入模型名（若 Provider 支持）
 func New(providerName, model string) (*LLM, error) {
 	p, err := provider.Get(providerName)
