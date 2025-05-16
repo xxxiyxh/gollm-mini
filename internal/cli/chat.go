@@ -9,14 +9,39 @@ import (
 	"strings"
 
 	"gollm-mini/internal/core"
+	"gollm-mini/internal/template"
 	"gollm-mini/internal/types"
 )
 
-// RunChat 启动交互式对话
-func RunChat(ctx context.Context, providerName, model, schema string, stream bool) error {
+// RunChat 交互式 CLI
+func RunChat(ctx context.Context,
+	provider, model, schema, tplName, varJSON, sysOverride string,
+	stream bool,
+) error {
 
-	// 创建单个 LLM（Provider + Model）
-	llm, err := core.New(providerName, model)
+	// ---------- 1. 载入模板 ----------
+	var (
+		tpl       template.Template
+		tplLoaded bool
+		vars      map[string]string
+	)
+	if tplName != "" {
+		store, err := template.Open("templates.db")
+		if err != nil {
+			return err
+		}
+		if tpl, err = store.Latest(tplName); err != nil {
+			return err
+		}
+		tplLoaded = true
+		_ = json.Unmarshal([]byte(varJSON), &vars)
+		if vars == nil {
+			vars = make(map[string]string)
+		}
+	}
+
+	// ---------- 2. 创建 LLM ----------
+	llm, err := core.New(provider, model)
 	if err != nil {
 		return err
 	}
@@ -24,54 +49,82 @@ func RunChat(ctx context.Context, providerName, model, schema string, stream boo
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Println("🔹 gollm-mini | 交互模式，exit 退出")
 
-	history := []types.Message{
-		{Role: types.RoleSystem, Content: "You are a helpful assistant."},
+	// ---------- 3. 初始化对话历史 ----------
+	var history []types.Message
+	if !tplLoaded { // 无模板时自行插入 System
+		sys := sysOverride
+		if sys == "" {
+			sys = template.DefaultSystem
+		}
+		history = []types.Message{{Role: types.RoleSystem, Content: sys}}
 	}
 
+	// ---------- 4. 主循环 ----------
 	for {
 		fmt.Print("\n👤 > ")
-		user, _ := reader.ReadString('\n')
-		user = strings.TrimSpace(user)
-		if user == "exit" {
+		userInput, _ := reader.ReadString('\n')
+		userInput = strings.TrimSpace(userInput)
+		if userInput == "exit" {
 			return nil
 		}
-		history = append(history, types.Message{Role: types.RoleUser, Content: user})
 
-		// JSON 结构化输出
+		// ----- 4.1 组装 prompt -----
+		var messages []types.Message
+		if tplLoaded {
+			vars["input"] = userInput
+			msgs, err := tpl.Render(vars, history, sysOverride)
+			if err != nil {
+				fmt.Println("Render Err:", err)
+				continue
+			}
+			messages = msgs
+		} else {
+			messages = append(history,
+				types.Message{Role: types.RoleUser, Content: userInput},
+			)
+		}
+
+		// ----- 4.2 结构化输出 -----
 		if schema != "" {
 			var result map[string]interface{}
-			_, err := llm.StructuredGenerate(ctx, history, schema, &result)
-			if err != nil {
-				fmt.Println("Error： 结构化失败:", err)
+			if _, err := llm.StructuredGenerate(ctx, messages, schema, &result); err != nil {
+				fmt.Println("Error：结构化失败:", err)
 				continue
 			}
 			pretty, _ := json.MarshalIndent(result, "", "  ")
 			fmt.Println("🤖 JSON:\n", string(pretty))
-			history = append(history, types.Message{Role: types.RoleAssistant, Content: string(pretty)})
-			continue // 跳过后续分支
+			history = append(history,
+				types.Message{Role: types.RoleAssistant, Content: string(pretty)},
+				types.Message{Role: types.RoleUser, Content: userInput},
+			)
+			continue
 		}
 
-		//流式/非流式
+		// ----- 4.3 普通问答 -----
 		if stream {
 			var buf strings.Builder
-			_, err := llm.Stream(ctx, history, func(ch types.Chunk) {
+			if _, err := llm.Stream(ctx, messages, func(ch types.Chunk) {
 				fmt.Print(ch.Content)
 				buf.WriteString(ch.Content)
-			})
-			if err != nil {
-				fmt.Println("\nError: ", err)
+			}); err != nil {
+				fmt.Println("\nError:", err)
 				continue
 			}
-			ans := buf.String()
-			history = append(history, types.Message{Role: types.RoleAssistant, Content: ans})
+			history = append(history,
+				types.Message{Role: types.RoleAssistant, Content: buf.String()},
+				types.Message{Role: types.RoleUser, Content: userInput},
+			)
 		} else {
-			ans, _, err := llm.Generate(ctx, history)
+			ans, _, err := llm.Generate(ctx, messages)
 			if err != nil {
-				fmt.Println("Error: ", err)
+				fmt.Println("Error:", err)
 				continue
 			}
 			fmt.Println("🤖:", ans)
-			history = append(history, types.Message{Role: types.RoleAssistant, Content: ans})
+			history = append(history,
+				types.Message{Role: types.RoleAssistant, Content: ans},
+				types.Message{Role: types.RoleUser, Content: userInput},
+			)
 		}
 	}
 }
