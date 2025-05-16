@@ -16,9 +16,12 @@ const (
 )
 
 type LLM struct {
-	name string
-	p    provider.Provider
+	name  string
+	model string
+	p     provider.Provider
 }
+
+func (l *LLM) Provider() string { return l.name }
 
 // New 创建一个 LLM 实例并注入模型名（若 Provider 支持）
 func New(providerName, model string) (*LLM, error) {
@@ -64,8 +67,8 @@ func (l *LLM) Generate(ctx context.Context, messages []types.Message) (string, t
 	if cost > 0 {
 		monitor.CostUSD.WithLabelValues(l.name, l.name).Add(cost)
 	}
-	log.Printf("[LLM] provider=%s prompt=%d completion=%d total=%d latency=%s",
-		l.name, usage.PromptTokens, usage.CompletionTokens, usage.Total(), dur)
+	log.Printf("[LLM] provider=%s prompt=%d completion=%d total=%d latency=%s cost=$%.4f",
+		l.name, usage.PromptTokens, usage.CompletionTokens, usage.Total(), dur, cost)
 	return txt, usage, err
 }
 

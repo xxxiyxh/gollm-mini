@@ -27,8 +27,18 @@ var (
 		},
 		[]string{"provider", "model"},
 	)
+
+	OptScore = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "llm_optimizer_score",
+			Help:    "Optimizer score by provider & template",
+			Buckets: []float64{1, 3, 5, 7, 9, 10},
+		},
+		[]string{"provider", "template"},
+	)
 )
 
 func init() {
 	prometheus.MustRegister(Latency, Tokens, CostUSD)
+	prometheus.MustRegister(OptScore)
 }

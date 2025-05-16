@@ -2,9 +2,14 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"gollm-mini/internal/optimizer"
+	"gollm-mini/internal/template"
 	"net/http"
+	"strconv"
+	"time"
 
 	"gollm-mini/internal/core"
 	"gollm-mini/internal/types"
@@ -83,6 +88,91 @@ func Run(ctx context.Context, addr string) error {
 		if err != nil {
 			_ = writeSSE(c.Writer, "error", err.Error())
 		}
+	})
+
+	tplStore, _ := template.Open("templates.db")
+
+	r.POST("/template", func(c *gin.Context) { // 新增/覆盖
+		var t template.Template
+		if err := c.ShouldBindJSON(&t); err != nil {
+			c.JSON(400, err)
+			return
+		}
+		if t.System == "" {
+			t.System = template.DefaultSystem
+		}
+		t.CreatedAt = time.Now()
+		if err := tplStore.Save(t); err != nil {
+			c.JSON(500, err)
+			return
+		}
+		c.JSON(200, gin.H{"saved": t})
+	})
+
+	r.GET("/template/:name", func(c *gin.Context) { // latest
+		t, err := tplStore.Latest(c.Param("name"))
+		if err != nil {
+			c.JSON(404, err)
+			return
+		}
+		c.JSON(200, t)
+	})
+
+	r.GET("/template/:name/:ver", func(c *gin.Context) {
+		v, _ := strconv.Atoi(c.Param("ver"))
+		t, err := tplStore.Get(c.Param("name"), v)
+		if err != nil {
+			c.JSON(404, err)
+			return
+		}
+		c.JSON(200, t)
+	})
+
+	r.DELETE("/template/:name/:ver", func(c *gin.Context) {
+		v, _ := strconv.Atoi(c.Param("ver"))
+		_ = tplStore.Delete(c.Param("name"), v)
+		c.Status(204)
+	})
+
+	r.POST("/optimize", func(c *gin.Context) { // A/B 入口
+		var req struct {
+			Tpls []struct {
+				Name    string `json:"name"`
+				Version int    `json:"version"`
+			} `json:"tpls" binding:"required"`
+			Vars     map[string]string `json:"vars"`
+			Provider string            `json:"provider"`
+			Model    string            `json:"model"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, err)
+			return
+		}
+
+		// Collect templates
+		var tpls []template.Template
+		for _, meta := range req.Tpls {
+			t, err := tplStore.Get(meta.Name, meta.Version)
+			if err != nil {
+				c.JSON(404, gin.H{"error": fmt.Sprintf("template %s:%d not found", meta.Name, meta.Version)})
+				return
+			}
+			tpls = append(tpls, t)
+		}
+
+		llm, err := core.New(req.Provider, req.Model)
+		if err != nil {
+			c.JSON(400, err)
+			return
+		}
+
+		best, scores, answers, err := optimizer.RunAB(c, llm, tpls, req.Vars)
+		if err != nil {
+			c.JSON(500, err)
+			return
+		}
+		c.JSON(200, gin.H{"best": best, "scores": scores, "answers": answers})
 	})
 
 	srv := &http.Server{
