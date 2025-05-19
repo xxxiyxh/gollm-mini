@@ -13,11 +13,12 @@ import (
 const bucket = "prompts"
 
 type Template struct {
-	Name      string    `json:"name"`
-	Version   int       `json:"version"`
-	System    string    `json:"system"` // 系统指令
-	Content   string    `json:"content"`
-	Variables []string  `json:"vars"`
+	Name    string   `json:"name"`
+	Version int      `json:"version"`
+	System  string   `json:"system"` // 系统指令
+	Content string   `json:"content"`
+	Vars    []string `json:"vars,omitempty"`
+	Parts
 	CreatedAt time.Time `json:"created_at"`
 }
 

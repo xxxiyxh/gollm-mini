@@ -47,7 +47,7 @@ func main() {
 				Version:   1,
 				System:    *system,
 				Content:   string(b),
-				Variables: []string{"topic"},
+				Vars:      []string{"topic"},
 				CreatedAt: time.Now(),
 			}
 			_ = store.Save(tpl)

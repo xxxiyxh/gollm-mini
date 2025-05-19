@@ -16,11 +16,14 @@ import (
 )
 
 type ChatRequest struct {
-	Messages []types.Message `json:"messages" binding:"required"`
-	Provider string          `json:"provider" default:"ollama"`
-	Model    string          `json:"model"    default:"llama3"`
-	Schema   string          `json:"schema"`           // 为空则普通文本
-	Stream   bool            `json:"stream,omitempty"` // SSE 是否流式
+	Messages []types.Message   `json:"messages"`
+	Tpl      string            `json:"tpl"`
+	Vars     map[string]string `json:"vars"`
+	System   string            `json:"system"`
+	Provider string            `json:"provider" default:"ollama"`
+	Model    string            `json:"model"    default:"llama3"`
+	Schema   string            `json:"schema"`
+	Stream   bool              `json:"stream,omitempty"`
 }
 
 type ChatResponse struct {
@@ -32,6 +35,11 @@ type ChatResponse struct {
 
 func Run(ctx context.Context, addr string) error {
 	r := gin.Default()
+
+	tplStore, err := template.Open("templates.db")
+	if err != nil {
+		return err
+	}
 
 	// 健康检查
 	r.GET("/health", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
@@ -51,9 +59,30 @@ func Run(ctx context.Context, addr string) error {
 			return
 		}
 
+		// ---------- 组装 Prompt ----------
+		msgs := req.Messages
+		if len(msgs) == 0 && req.Tpl != "" {
+			tpl, err := tplStore.Latest(req.Tpl)
+			if err != nil {
+				c.JSON(404, gin.H{"error": fmt.Sprintf("template %s not found", req.Tpl)})
+				return
+			}
+			rendered, err := tpl.Render(req.Vars, nil, req.System)
+			if err != nil {
+				c.JSON(400, gin.H{"error": err.Error()})
+				return
+			}
+			msgs = rendered
+		}
+		if len(msgs) == 0 {
+			c.JSON(400, gin.H{"error": "no messages or template provided"})
+			return
+		}
+
 		// 非流式、无 schema —— 普通文本
 		if !req.Stream && req.Schema == "" {
-			text, usage, err := llm.Generate(ctx, req.Messages)
+			text, usage, err := llm.Generate(ctx, msgs)
+
 			c.JSON(http.StatusOK, ChatResponse{
 				Text:   text,
 				Usage:  usage,
@@ -65,7 +94,7 @@ func Run(ctx context.Context, addr string) error {
 		// 结构化 JSON（强制非流式）
 		if req.Schema != "" {
 			var out map[string]interface{}
-			usage, err := llm.StructuredGenerate(ctx, req.Messages, req.Schema, &out)
+			usage, err := llm.StructuredGenerate(ctx, msgs, req.Schema, &out)
 			c.JSON(http.StatusOK, ChatResponse{
 				JSON:   out,
 				Usage:  usage,
@@ -79,7 +108,7 @@ func Run(ctx context.Context, addr string) error {
 		c.Writer.Header().Set("Cache-Control", "no-cache")
 		flusher, _ := c.Writer.(http.Flusher)
 
-		_, err = llm.Stream(ctx, req.Messages, func(ch types.Chunk) {
+		_, err = llm.Stream(ctx, msgs, func(ch types.Chunk) {
 			_ = writeSSE(c.Writer, "data", ch.Content)
 			flusher.Flush()
 		})
@@ -88,9 +117,8 @@ func Run(ctx context.Context, addr string) error {
 		if err != nil {
 			_ = writeSSE(c.Writer, "error", err.Error())
 		}
+		return
 	})
-
-	tplStore, _ := template.Open("templates.db")
 
 	r.POST("/template", func(c *gin.Context) { // 新增/覆盖
 		var t template.Template
