@@ -36,9 +36,15 @@ var (
 		},
 		[]string{"provider", "template"},
 	)
+
+	CacheHit = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "prompt_cache_hit_total", Help: "LLM prompt cache hit",
+	})
+	CacheMiss = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "prompt_cache_miss_total", Help: "LLM prompt cache miss",
+	})
 )
 
 func init() {
-	prometheus.MustRegister(Latency, Tokens, CostUSD)
-	prometheus.MustRegister(OptScore)
+	prometheus.MustRegister(Latency, Tokens, CostUSD, OptScore, CacheHit, CacheMiss)
 }

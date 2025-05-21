@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"gollm-mini/internal/cache"
 	"gollm-mini/internal/helper"
 	"gollm-mini/internal/monitor"
 	"log"
@@ -42,6 +43,15 @@ func (l *LLM) Generate(ctx context.Context, messages []types.Message) (string, t
 	//Memory截断
 	clipped := helper.TruncateMessages(messages, maxCtx)
 
+	//尝试命中缓存
+	cacheKey := cache.KeyFromMessages(l.name, l.model, clipped)
+	if v, ok := cache.Get(cacheKey); ok {
+		monitor.CacheHit.Inc()
+		log.Printf("[CACHE HIT] provider=%s model=%s", l.name, l.model)
+		return v.Text, v.Usage, nil
+	}
+	monitor.CacheMiss.Inc()
+
 	start := time.Now()
 	var (
 		txt   string
@@ -71,6 +81,10 @@ func (l *LLM) Generate(ctx context.Context, messages []types.Message) (string, t
 	}
 	log.Printf("[LLM] provider=%s prompt=%d completion=%d total=%d latency=%s cost=$%.4f",
 		l.name, usage.PromptTokens, usage.CompletionTokens, usage.Total(), dur, cost)
+
+	if err == nil {
+		cache.Put(cacheKey, cache.Value{Text: txt, Usage: usage})
+	}
 	return txt, usage, err
 }
 

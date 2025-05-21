@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"gollm-mini/internal/cache"
 	"gollm-mini/internal/optimizer"
 	"gollm-mini/internal/template"
 	"net/http"
@@ -201,6 +202,36 @@ func Run(ctx context.Context, addr string) error {
 			return
 		}
 		c.JSON(200, gin.H{"best": best, "scores": scores, "answers": answers})
+	})
+
+	// 删除整个缓存
+	r.DELETE("/cache/all", func(c *gin.Context) {
+		err := cache.ClearAll()
+		if err != nil {
+			c.JSON(500, err)
+		} else {
+			c.Status(204)
+		}
+	})
+
+	// 删除指定 key
+	r.DELETE("/cache/:key", func(c *gin.Context) {
+		err := cache.DeleteKey(c.Param("key"))
+		if err != nil {
+			c.JSON(500, err)
+		} else {
+			c.Status(204)
+		}
+	})
+
+	// 删除前缀匹配 key（可用于清理某模型）
+	r.DELETE("/cache/prefix/:prefix", func(c *gin.Context) {
+		err := cache.DeletePrefix(c.Param("prefix"))
+		if err != nil {
+			c.JSON(500, err)
+		} else {
+			c.Status(204)
+		}
 	})
 
 	srv := &http.Server{
