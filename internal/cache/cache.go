@@ -117,7 +117,9 @@ func evictOldest(b *bolt.Bucket) {
 func ClearAll() error {
 	db := openDB()
 	return db.Update(func(tx *bolt.Tx) error {
-		return tx.DeleteBucket([]byte(bucket))
+		_ = tx.DeleteBucket([]byte(bucket))
+		_, err := tx.CreateBucketIfNotExists([]byte(bucket))
+		return err
 	})
 }
 

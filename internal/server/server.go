@@ -1,13 +1,16 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gollm-mini/internal/cache"
 	"gollm-mini/internal/optimizer"
 	"gollm-mini/internal/template"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -204,44 +207,64 @@ func handleTplGet(c *gin.Context, store *template.Store) {
 }
 
 func handleOptimize(c *gin.Context, store *template.Store) {
-	var req struct {
-		Tpls []struct {
-			Name    string `json:"name"`
-			Version int    `json:"version"`
-		} `json:"tpls" binding:"required"`
-		Vars     map[string]string `json:"vars"`
-		Provider string            `json:"provider"`
-		Model    string            `json:"model"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, err)
+	// 0. 先一次性读出原始 body
+	raw, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
+	// 让 Body 可重复读（给 Gin 其他中间件）
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(raw))
 
-	// Collect templates
-	var tpls []template.Template
-	for _, meta := range req.Tpls {
-		t, err := store.Get(meta.Name, meta.Version)
-		if err != nil {
-			c.JSON(404, gin.H{"error": fmt.Sprintf("template %s:%d not found", meta.Name, meta.Version)})
-			return
+	// 1. 尝试新格式
+	var reqNew struct {
+		Variants []optimizer.Variant `json:"variants"`
+		Vars     map[string]string   `json:"vars"`
+	}
+	_ = json.Unmarshal(raw, &reqNew)
+
+	// 2. 若新格式为空，再尝试旧格式
+	if len(reqNew.Variants) == 0 {
+		var legacy struct {
+			Tpls []struct {
+				Name    string `json:"name"`
+				Version int    `json:"version"`
+			} `json:"tpls"`
+			Vars     map[string]string `json:"vars"`
+			Provider string            `json:"provider"`
+			Model    string            `json:"model"`
 		}
-		tpls = append(tpls, t)
+		if err := json.Unmarshal(raw, &legacy); err == nil && len(legacy.Tpls) > 0 {
+			for _, t := range legacy.Tpls {
+				reqNew.Variants = append(reqNew.Variants, optimizer.Variant{
+					Provider: legacy.Provider,
+					Model:    legacy.Model,
+					TplName:  t.Name,
+					Version:  t.Version,
+				})
+			}
+			reqNew.Vars = legacy.Vars
+		}
 	}
 
-	llm, err := core.New(req.Provider, req.Model)
-	if err != nil {
-		c.JSON(400, err)
+	if len(reqNew.Variants) == 0 {
+		c.JSON(400, gin.H{"error": "variants required"})
 		return
 	}
 
-	best, scores, answers, err := optimizer.RunAB(c, llm, tpls, req.Vars)
+	best, scores, answers, lat, err :=
+		optimizer.RunVariants(c, reqNew.Variants, reqNew.Vars, store)
 	if err != nil {
-		c.JSON(500, err)
+		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(200, gin.H{"best": best, "scores": scores, "answers": answers})
+
+	c.JSON(200, gin.H{
+		"best":      best,
+		"scores":    scores,
+		"answers":   answers,
+		"latencies": lat,
+	})
 }
 
 func handleCacheClearAll(c *gin.Context) {
