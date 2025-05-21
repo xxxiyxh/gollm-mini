@@ -43,8 +43,17 @@ var (
 	CacheMiss = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "prompt_cache_miss_total", Help: "LLM prompt cache miss",
 	})
+
+	CompareLatency = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "llm_compare_latency_seconds",
+			Help:    "Latency per provider in compare run",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"provider"},
+	)
 )
 
 func init() {
-	prometheus.MustRegister(Latency, Tokens, CostUSD, OptScore, CacheHit, CacheMiss)
+	prometheus.MustRegister(Latency, Tokens, CostUSD, OptScore, CacheHit, CacheMiss, CompareLatency)
 }

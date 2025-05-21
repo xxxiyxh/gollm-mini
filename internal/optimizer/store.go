@@ -12,13 +12,14 @@ import (
 const recordBucket = "opt_records"
 
 type Record struct {
-	Template string    `json:"template"` // "sum:1"
-	Input    string    `json:"input"`
-	Answer   string    `json:"answer"`
-	Score    float64   `json:"score"`
-	Provider string    `json:"provider"`
-	Model    string    `json:"model"`
-	At       time.Time `json:"at"`
+	VariantKey string    `json:"variant"`
+	Template   string    `json:"template"` // "sum:1"
+	Input      string    `json:"input"`
+	Answer     string    `json:"answer"`
+	Score      float64   `json:"score"`
+	Provider   string    `json:"provider"`
+	Model      string    `json:"model"`
+	At         time.Time `json:"at"`
 }
 
 type Store struct {
