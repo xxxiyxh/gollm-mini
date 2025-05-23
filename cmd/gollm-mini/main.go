@@ -9,7 +9,9 @@ import (
 	"time"
 
 	// side‑effect 注册 Provider
+	_ "gollm-mini/internal/provider/huggingface"
 	_ "gollm-mini/internal/provider/ollama"
+	_ "gollm-mini/internal/provider/openai"
 
 	"gollm-mini/internal/cli"
 	"gollm-mini/internal/server"
@@ -19,7 +21,7 @@ import (
 func main() {
 	// --------- CLI 参数解析 ---------
 	mode := flag.String("mode", "chat", "运行模式：chat / server / template")
-	provider := flag.String("provider", "ollama", "Provider：ollama / openai ...")
+	provider := flag.String("provider", "ollama", "Provider：ollama / openai / hf ...")
 	model := flag.String("model", "llama3", "模型名称：llama3 / gpt-4o-mini ...")
 	stream := flag.Bool("stream", true, "是否实时输出（结构化 JSON 会自动关闭）")
 	schemaPath := flag.String("schema", "", "JSON Schema 文件路径（触发结构化模式）")
