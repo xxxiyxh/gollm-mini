@@ -9,13 +9,17 @@ import (
 	"strings"
 
 	"gollm-mini/internal/core"
+	"gollm-mini/internal/helper"
+	"gollm-mini/internal/memory"
 	"gollm-mini/internal/template"
 	"gollm-mini/internal/types"
 )
 
+const defaultCtx = 3000 // fallback
+
 // RunChat 交互式 CLI
 func RunChat(ctx context.Context,
-	provider, model, schema, tplName, varJSON, sysOverride string,
+	provider, model, schema, tplName, varJSON, sysOverride, sessionID string,
 	stream bool,
 ) error {
 
@@ -51,12 +55,24 @@ func RunChat(ctx context.Context,
 
 	// ---------- 3. 初始化对话历史 ----------
 	var history []types.Message
-	if !tplLoaded { // 无模板时自行插入 System
+	if sessionID != "" {
+		if hist, e := memory.Load(sessionID); e == nil {
+			history = hist
+		}
+	}
+
+	if len(history) == 0 { // 插入 System
 		sys := sysOverride
 		if sys == "" {
 			sys = template.DefaultSystem
 		}
 		history = []types.Message{{Role: types.RoleSystem, Content: sys}}
+	}
+
+	// context token limit
+	ctxLimit := defaultCtx
+	if tplLoaded && tpl.MaxLen > 0 {
+		ctxLimit = tpl.MaxLen
 	}
 
 	// ---------- 4. 主循环 ----------
@@ -84,6 +100,9 @@ func RunChat(ctx context.Context,
 			)
 		}
 
+		// 4.1.1 截断
+		messages = helper.TruncateMessages(messages, ctxLimit)
+
 		// ----- 4.2 结构化输出 -----
 		if schema != "" {
 			var result map[string]interface{}
@@ -93,10 +112,14 @@ func RunChat(ctx context.Context,
 			}
 			pretty, _ := json.MarshalIndent(result, "", "  ")
 			fmt.Println("🤖 JSON:\n", string(pretty))
-			history = append(history,
-				types.Message{Role: types.RoleAssistant, Content: string(pretty)},
-				types.Message{Role: types.RoleUser, Content: userInput},
-			)
+
+			assistantMsg := types.Message{Role: types.RoleAssistant, Content: string(pretty)}
+			userMsg := types.Message{Role: types.RoleUser, Content: userInput}
+			history = append(history, assistantMsg, userMsg)
+
+			if sessionID != "" {
+				_ = memory.Append(sessionID, []types.Message{userMsg, assistantMsg})
+			}
 			continue
 		}
 
@@ -110,10 +133,14 @@ func RunChat(ctx context.Context,
 				fmt.Println("\nError:", err)
 				continue
 			}
-			history = append(history,
-				types.Message{Role: types.RoleAssistant, Content: buf.String()},
-				types.Message{Role: types.RoleUser, Content: userInput},
-			)
+			ans := buf.String()
+			assistantMsg := types.Message{Role: types.RoleAssistant, Content: ans}
+			userMsg := types.Message{Role: types.RoleUser, Content: userInput}
+			history = append(history, assistantMsg, userMsg)
+
+			if sessionID != "" {
+				_ = memory.Append(sessionID, []types.Message{userMsg, assistantMsg})
+			}
 		} else {
 			ans, _, err := llm.Generate(ctx, messages)
 			if err != nil {
@@ -121,10 +148,13 @@ func RunChat(ctx context.Context,
 				continue
 			}
 			fmt.Println("🤖:", ans)
-			history = append(history,
-				types.Message{Role: types.RoleAssistant, Content: ans},
-				types.Message{Role: types.RoleUser, Content: userInput},
-			)
+			assistantMsg := types.Message{Role: types.RoleAssistant, Content: ans}
+			userMsg := types.Message{Role: types.RoleUser, Content: userInput}
+			history = append(history, assistantMsg, userMsg)
+
+			if sessionID != "" {
+				_ = memory.Append(sessionID, []types.Message{userMsg, assistantMsg})
+			}
 		}
 	}
 }

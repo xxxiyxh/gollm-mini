@@ -4,30 +4,34 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"gollm-mini/internal/cache"
-	"gollm-mini/internal/optimizer"
-	"gollm-mini/internal/template"
 	"io"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"gollm-mini/internal/cache"
 	"gollm-mini/internal/core"
+	"gollm-mini/internal/memory"
+	"gollm-mini/internal/optimizer"
+	"gollm-mini/internal/template"
 	"gollm-mini/internal/types"
 )
 
+/* ---------- request / response ---------- */
+
 type ChatRequest struct {
-	Messages []types.Message   `json:"messages"`
-	Tpl      string            `json:"tpl"`
-	Vars     map[string]string `json:"vars"`
-	System   string            `json:"system"`
-	Provider string            `json:"provider" default:"ollama"`
-	Model    string            `json:"model"    default:"llama3"`
-	Schema   string            `json:"schema"`
-	Stream   bool              `json:"stream,omitempty"`
+	Messages  []types.Message   `json:"messages"`
+	Tpl       string            `json:"tpl"`
+	Vars      map[string]string `json:"vars"`
+	System    string            `json:"system"`
+	Provider  string            `json:"provider" default:"ollama"`
+	Model     string            `json:"model"    default:"llama3"`
+	Schema    string            `json:"schema"`
+	Stream    bool              `json:"stream,omitempty"`
+	SessionID string            `json:"session_id"` // 新增：对话记忆
 }
 
 type ChatResponse struct {
@@ -37,6 +41,8 @@ type ChatResponse struct {
 	ErrMsg string      `json:"error,omitempty"`
 }
 
+/* ---------- bootstrap ---------- */
+
 func Run(ctx context.Context, addr string) error {
 	r := gin.Default()
 
@@ -45,17 +51,14 @@ func Run(ctx context.Context, addr string) error {
 		return err
 	}
 
-	// 健康检查
 	r.GET("/health", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
-	//Chat
 	chat := r.Group("/chat")
 	{
 		chat.POST("", func(c *gin.Context) { handleChat(c, tplStore) })
 	}
 
-	//Template CRUD
 	tpl := r.Group("/template")
 	{
 		tpl.POST("", func(c *gin.Context) { handleTplSave(c, tplStore) })
@@ -64,13 +67,11 @@ func Run(ctx context.Context, addr string) error {
 		tpl.DELETE("/:name/:ver", func(c *gin.Context) { handleTplDel(c, tplStore) })
 	}
 
-	//Optimizer
 	opt := r.Group("/optimizer")
 	{
 		opt.POST("", func(c *gin.Context) { handleOptimize(c, tplStore) })
 	}
 
-	//Cache
 	cacheGrp := r.Group("/cache")
 	{
 		cacheGrp.DELETE("/all", handleCacheClearAll)
@@ -78,91 +79,111 @@ func Run(ctx context.Context, addr string) error {
 		cacheGrp.DELETE("/prefix/:prefix", handleCacheDelPrefix)
 	}
 
-	srv := &http.Server{
-		Addr:    addr,
-		Handler: r,
+	mem := r.Group("/memory")
+	{
+		mem.DELETE("/:sid", handleMemoryDelete) // DELETE /memory/{sid}
 	}
 
-	go func() {
-		<-ctx.Done()
-		_ = srv.Shutdown(context.Background())
-	}()
+	srv := &http.Server{Addr: addr, Handler: r}
+
+	go func() { <-ctx.Done(); _ = srv.Shutdown(context.Background()) }()
 	return srv.ListenAndServe()
 }
+
+/* ---------- chat ---------- */
 
 func handleChat(c *gin.Context, tplStore *template.Store) {
 	var req ChatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
 	llm, err := core.New(req.Provider, req.Model)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	// ---------- 组装 Prompt ----------
+	/* ① 读取历史 */
+	var history []types.Message
+	if req.SessionID != "" {
+		history, err = memory.Load(req.SessionID)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
+	/* ② 组装 prompt */
 	msgs := req.Messages
 	if len(msgs) == 0 && req.Tpl != "" {
-		tpl, err := tplStore.Latest(req.Tpl)
-		if err != nil {
-			c.JSON(404, gin.H{"error": fmt.Sprintf("template %s not found", req.Tpl)})
+		tpl, e := tplStore.Latest(req.Tpl)
+		if e != nil {
+			c.JSON(404, gin.H{"error": e.Error()})
 			return
 		}
-		rendered, err := tpl.Render(req.Vars, nil, req.System)
-		if err != nil {
-			c.JSON(400, gin.H{"error": err.Error()})
+		msgs, e = tpl.Render(req.Vars, history, req.System)
+		if e != nil {
+			c.JSON(400, gin.H{"error": e.Error()})
 			return
 		}
-		msgs = rendered
+	}
+	if len(history) > 0 && len(req.Messages) > 0 {
+		msgs = append(history, req.Messages...)
 	}
 	if len(msgs) == 0 {
 		c.JSON(400, gin.H{"error": "no messages or template provided"})
 		return
 	}
 
-	// 非流式、无 schema —— 普通文本
+	/* ③ 非流式 & 无 schema */
 	if !req.Stream && req.Schema == "" {
-		text, usage, err := llm.Generate(c.Request.Context(), msgs)
+		text, usage, err := llm.Generate(c, msgs)
+		c.JSON(200, ChatResponse{Text: text, Usage: usage, ErrMsg: errMsg(err)})
 
-		c.JSON(http.StatusOK, ChatResponse{
-			Text:   text,
-			Usage:  usage,
-			ErrMsg: errMsg(err),
-		})
+		if req.SessionID != "" && err == nil {
+			_ = memory.Append(req.SessionID, []types.Message{
+				{Role: types.RoleUser, Content: msgs[len(msgs)-1].Content},
+				{Role: types.RoleAssistant, Content: text},
+			})
+		}
 		return
 	}
 
-	// 结构化 JSON（强制非流式）
+	/* ④ 结构化 JSON */
 	if req.Schema != "" {
 		var out map[string]interface{}
-		usage, err := llm.StructuredGenerate(c.Request.Context(), msgs, req.Schema, &out)
-		c.JSON(http.StatusOK, ChatResponse{
-			JSON:   out,
-			Usage:  usage,
-			ErrMsg: errMsg(err),
-		})
+		usage, err := llm.StructuredGenerate(c, msgs, req.Schema, &out)
+		c.JSON(200, ChatResponse{JSON: out, Usage: usage, ErrMsg: errMsg(err)})
 		return
 	}
 
-	// 流式 SSE
+	/* ⑤ 流式 SSE */
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
 	flusher, _ := c.Writer.(http.Flusher)
 
-	_, err = llm.Stream(c.Request.Context(), msgs, func(ch types.Chunk) {
+	var buf bytes.Buffer
+	_, err = llm.Stream(c, msgs, func(ch types.Chunk) {
 		_ = writeSSE(c.Writer, "data", ch.Content)
+		buf.WriteString(ch.Content)
 		flusher.Flush()
 	})
-
 	_ = writeSSE(c.Writer, "event", "done")
 	if err != nil {
 		_ = writeSSE(c.Writer, "error", err.Error())
 	}
-	return
+
+	if req.SessionID != "" && err == nil {
+		_ = memory.Append(req.SessionID, []types.Message{
+			{Role: types.RoleUser, Content: msgs[len(msgs)-1].Content},
+			{Role: types.RoleAssistant, Content: buf.String()},
+		})
+	}
 }
+
+/* ---------- template CRUD ---------- */
 
 func handleTplSave(c *gin.Context, store *template.Store) {
 	var t template.Template
@@ -189,13 +210,6 @@ func handleTplLatest(c *gin.Context, store *template.Store) {
 	}
 	c.JSON(200, t)
 }
-
-func handleTplDel(c *gin.Context, store *template.Store) {
-	v, _ := strconv.Atoi(c.Param("ver"))
-	_ = store.Delete(c.Param("name"), v)
-	c.Status(204)
-}
-
 func handleTplGet(c *gin.Context, store *template.Store) {
 	v, _ := strconv.Atoi(c.Param("ver"))
 	t, err := store.Get(c.Param("name"), v)
@@ -205,102 +219,105 @@ func handleTplGet(c *gin.Context, store *template.Store) {
 	}
 	c.JSON(200, t)
 }
+func handleTplDel(c *gin.Context, store *template.Store) {
+	v, _ := strconv.Atoi(c.Param("ver"))
+	_ = store.Delete(c.Param("name"), v)
+	c.Status(204)
+}
+
+/* ---------- optimizer ---------- */
 
 func handleOptimize(c *gin.Context, store *template.Store) {
-	// 0. 先一次性读出原始 body
 	raw, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
-	// 让 Body 可重复读（给 Gin 其他中间件）
 	c.Request.Body = io.NopCloser(bytes.NewBuffer(raw))
 
-	// 1. 尝试新格式
-	var reqNew struct {
+	var req struct {
 		Variants []optimizer.Variant `json:"variants"`
 		Vars     map[string]string   `json:"vars"`
 	}
-	_ = json.Unmarshal(raw, &reqNew)
+	_ = json.Unmarshal(raw, &req)
 
-	// 2. 若新格式为空，再尝试旧格式
-	if len(reqNew.Variants) == 0 {
+	/* 兼容旧格式 */
+	if len(req.Variants) == 0 {
 		var legacy struct {
 			Tpls []struct {
-				Name    string `json:"name"`
-				Version int    `json:"version"`
+				Name    string
+				Version int
 			} `json:"tpls"`
-			Vars     map[string]string `json:"vars"`
-			Provider string            `json:"provider"`
-			Model    string            `json:"model"`
+			Vars            map[string]string `json:"vars"`
+			Provider, Model string
 		}
-		if err := json.Unmarshal(raw, &legacy); err == nil && len(legacy.Tpls) > 0 {
-			for _, t := range legacy.Tpls {
-				reqNew.Variants = append(reqNew.Variants, optimizer.Variant{
-					Provider: legacy.Provider,
-					Model:    legacy.Model,
-					TplName:  t.Name,
-					Version:  t.Version,
-				})
-			}
-			reqNew.Vars = legacy.Vars
+		_ = json.Unmarshal(raw, &legacy)
+		for _, t := range legacy.Tpls {
+			req.Variants = append(req.Variants, optimizer.Variant{
+				Provider: legacy.Provider, Model: legacy.Model,
+				TplName: t.Name, Version: t.Version,
+			})
 		}
+		req.Vars = legacy.Vars
 	}
 
-	if len(reqNew.Variants) == 0 {
+	if len(req.Variants) == 0 {
 		c.JSON(400, gin.H{"error": "variants required"})
 		return
 	}
 
 	best, scores, answers, lat, err :=
-		optimizer.RunVariants(c, reqNew.Variants, reqNew.Vars, store)
+		optimizer.RunVariants(c, req.Variants, req.Vars, store)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.JSON(200, gin.H{
-		"best":      best,
-		"scores":    scores,
-		"answers":   answers,
-		"latencies": lat,
+		"best": best, "scores": scores, "answers": answers, "latencies": lat,
 	})
 }
 
+/* ---------- cache handlers ---------- */
+
 func handleCacheClearAll(c *gin.Context) {
-	err := cache.ClearAll()
-	if err != nil {
+	if err := cache.ClearAll(); err != nil {
 		c.JSON(500, err)
 	} else {
 		c.Status(204)
 	}
 }
-
 func handleCacheDelKey(c *gin.Context) {
-	err := cache.DeleteKey(c.Param("key"))
-	if err != nil {
+	if err := cache.DeleteKey(c.Param("key")); err != nil {
 		c.JSON(500, err)
 	} else {
 		c.Status(204)
 	}
 }
-
 func handleCacheDelPrefix(c *gin.Context) {
-	err := cache.DeletePrefix(c.Param("prefix"))
-	if err != nil {
+	if err := cache.DeletePrefix(c.Param("prefix")); err != nil {
 		c.JSON(500, err)
 	} else {
 		c.Status(204)
 	}
 }
 
-// ---- helpers ----
+/* ---------- memory handlers ---------- */
+
+func handleMemoryDelete(c *gin.Context) {
+	if err := memory.Delete(c.Param("sid")); err != nil {
+		c.JSON(500, err)
+	} else {
+		c.Status(204) // No Content
+	}
+}
+
+/* ---------- helpers ---------- */
 
 func writeSSE(w http.ResponseWriter, field, data string) error {
 	_, err := w.Write([]byte(field + ": " + data + "\n\n"))
 	return err
 }
-
 func errMsg(e error) string {
 	if e != nil {
 		return e.Error()

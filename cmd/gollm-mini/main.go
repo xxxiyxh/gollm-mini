@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	// side‑effect 注册 Provider
+	// side-effect 注册 Provider
 	_ "gollm-mini/internal/provider/huggingface"
 	_ "gollm-mini/internal/provider/ollama"
 	_ "gollm-mini/internal/provider/openai"
@@ -25,6 +25,7 @@ func main() {
 	model := flag.String("model", "llama3", "模型名称：llama3 / gpt-4o-mini ...")
 	stream := flag.Bool("stream", true, "是否实时输出（结构化 JSON 会自动关闭）")
 	schemaPath := flag.String("schema", "", "JSON Schema 文件路径（触发结构化模式）")
+	sessionID := flag.String("sid", "", "对话 Session ID")
 
 	port := flag.String("port", "8080", "server 端口")
 	system := flag.String("system", "", "覆盖 system 指令文本")
@@ -37,8 +38,7 @@ func main() {
 
 	// ---------- 模板管理子命令 ----------
 	if *mode == "template" {
-		path := "templates.db"
-		store, _ := template.Open(path)
+		store, _ := template.Open("templates.db")
 		switch flag.Arg(0) {
 		case "add":
 			name := flag.Arg(1)
@@ -79,6 +79,7 @@ func main() {
 			*tplFlag,
 			*varsFlag,
 			*system,
+			*sessionID, // ← 将 session 透传给 RunChat
 			*stream,
 		)
 		if err != nil {
