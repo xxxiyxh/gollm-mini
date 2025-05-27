@@ -1,0 +1,57 @@
+# Go build artifacts
+/bin/
+/build/
+/dist/
+*.exe
+*.test
+*.out
+
+# IDE/editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Dependency/vendor cache
+vendor/
+go.sum
+go.mod
+
+# OS & temp files
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+
+# BoltDB storage
+*.db
+
+# Prompt cache & memory store
+prompt_cache.db
+memory.db
+optimize.db
+
+# Model-related (ollama/huggingface/etc)
+*.onnx
+*.gguf
+*.bin
+*.ckpt
+models/
+ollama_models/
+
+# CLI history / artifacts
+*.history
+*.jsonl
+*.csv
+
+# Local test artifacts
+/test_output/
+coverage.out
+profile.cov
+
+# Logs
+logs/
+*.log
+
+# Testdata
+testdata/
