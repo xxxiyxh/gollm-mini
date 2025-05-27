@@ -35,7 +35,7 @@ func New(providerName, model string) (*LLM, error) {
 	if ms, ok := p.(provider.ModelSetter); ok && model != "" {
 		ms.SetModel(model)
 	}
-	return &LLM{name: providerName, p: p}, nil
+	return &LLM{name: providerName, model: model, p: p}, nil
 }
 
 // Generate 调用底层 Provider 的生成接口，并打印日志
