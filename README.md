@@ -32,6 +32,17 @@ OPENAI_API_KEY=<your-key> gollm-mini -mode=chat -provider=openai -model=gpt-4o-m
 
 # Run as REST/SSE server
 gollm-mini -mode=server -port=8080
+
+# Huggingface local server
+Install python3.12:
+brew update
+brew install python@3.12
+echo 'export PATH="/usr/local/opt/python@3.12/bin:$PATH"' >> ~/.zshrc
+
+# Create venv
+python3.12 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
 ---
@@ -48,6 +59,11 @@ gollm-mini -mode=chat -stream=false
 # Structured JSON output
 # schema is a local JSON schema file path
 gollm-mini -mode=chat -schema=person.schema.json -stream=false
+
+# HuggingFace local service (Python)
+# Start local HuggingFace service using uvicorn (recommended)
+cd gollm-mini/providers/huggingface
+uvicorn server:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ---
