@@ -34,7 +34,7 @@ OPENAI_API_KEY=<your-key> gollm-mini -mode=chat -provider=openai -model=gpt-4o-m
 gollm-mini -mode=server -port=8080
 
 # Huggingface local server
-Install python3.12:
+# Install python3.12:
 brew update
 brew install python@3.12
 echo 'export PATH="/usr/local/opt/python@3.12/bin:$PATH"' >> ~/.zshrc
