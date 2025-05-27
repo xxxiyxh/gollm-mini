@@ -32,7 +32,14 @@ func RunVariants(
 ) (best Variant, scores map[string]float64,
 	answers map[string]string, latencies map[string]float64, err error) {
 
-	const judgeSys = "你是评分助手，针对给定回答(Answer)和问题(Question)按照相关性与流畅度打分1-10，只回复数字。"
+	const judgeSys = `
+	你是评分助手，请从以下维度对回答进行逐项评分，最后给出一个综合评分（1~10）：
+	- 内容相关性
+	- 回答流畅性
+	- 表达准确性
+	- 输出格式是否清晰
+	只返回最终综合分数，其他文字省略。
+	`
 
 	recDB, _ := Open("optimize.db") // 评分落库
 	scores = map[string]float64{}
