@@ -42,7 +42,7 @@ echo 'export PATH="/usr/local/opt/python@3.12/bin:$PATH"' >> ~/.zshrc
 # Create venv
 python3.12 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install fastapi uvicorn transformers torch
 ```
 
 ---
