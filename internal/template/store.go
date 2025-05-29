@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -102,6 +103,35 @@ func (s *Store) Delete(name string, version int) error {
 		}
 		return b.Delete([]byte(tplKey(name, version)))
 	})
+}
+
+// ListAllLatest 返回“每个模板名的最新版本”切片
+func (s *Store) ListAllLatest() ([]Template, error) {
+	latest := make(map[string]Template)
+
+	err := s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bucket))
+		if b == nil {
+			return nil
+		}
+		c := b.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var t Template
+			_ = json.Unmarshal(v, &t)
+			if cur, ok := latest[t.Name]; !ok || t.Version > cur.Version {
+				latest[t.Name] = t
+			}
+		}
+		return nil
+	})
+
+	// 组装为切片
+	list := make([]Template, 0, len(latest))
+	for _, v := range latest {
+		list = append(list, v)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+	return list, err
 }
 
 func tplKey(name string, ver int) string { return fmt.Sprintf("%s:%d", name, ver) }

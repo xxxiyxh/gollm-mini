@@ -62,7 +62,8 @@ func Run(ctx context.Context, addr string) error {
 	tpl := r.Group("/template")
 	{
 		tpl.POST("", func(c *gin.Context) { handleTplSave(c, tplStore) })
-		tpl.GET("/:name", func(c *gin.Context) { handleTplLatest(c, tplStore) })
+		tpl.GET("", func(c *gin.Context) { handleTplListAllLatest(c, tplStore) }) // NEW
+		tpl.GET("/:name", func(c *gin.Context) { handleTplLatestOrVersions(c, tplStore) })
 		tpl.GET("/:name/:ver", func(c *gin.Context) { handleTplGet(c, tplStore) })
 		tpl.DELETE("/:name/:ver", func(c *gin.Context) { handleTplDel(c, tplStore) })
 	}
@@ -210,6 +211,30 @@ func handleTplLatest(c *gin.Context, store *template.Store) {
 	}
 	c.JSON(200, t)
 }
+
+func handleTplListAllLatest(c *gin.Context, store *template.Store) {
+	list, err := store.ListAllLatest()
+	if err != nil {
+		c.JSON(500, err)
+		return
+	}
+	c.JSON(200, list)
+}
+
+func handleTplLatestOrVersions(c *gin.Context, store *template.Store) {
+	name := c.Param("name")
+	if c.Query("all") == "1" {
+		list, err := store.List(name)
+		if err != nil {
+			c.JSON(500, err)
+			return
+		}
+		c.JSON(200, list)
+		return
+	}
+	handleTplLatest(c, store) // 复用现有逻辑
+}
+
 func handleTplGet(c *gin.Context, store *template.Store) {
 	v, _ := strconv.Atoi(c.Param("ver"))
 	t, err := store.Get(c.Param("name"), v)
