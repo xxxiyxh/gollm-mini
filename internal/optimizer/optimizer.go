@@ -48,6 +48,11 @@ func RunVariants(
 
 	question := vars["input"]
 	judgePrompt := []types.Message{{Role: types.RoleSystem, Content: judgeSys}}
+	judgeLLM, e := core.New("ollama", "llama3")
+	if e != nil {
+		err = e
+		return
+	}
 
 	for _, v := range variants {
 		key := v.Key()
@@ -85,9 +90,10 @@ func RunVariants(
 
 		// 3. 评分
 		scorePrompt := fmt.Sprintf("Question:%s\nAnswer:%s\nScore:", question, answer)
-		scoreTxt, _, e := llm.Generate(ctx, append(judgePrompt, types.Message{
+		scoreTxt, _, e := judgeLLM.Generate(ctx, append(judgePrompt, types.Message{
 			Role: types.RoleUser, Content: scorePrompt,
 		}))
+
 		if e != nil {
 			err = e
 			return
