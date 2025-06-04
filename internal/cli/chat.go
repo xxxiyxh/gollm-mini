@@ -113,9 +113,9 @@ func RunChat(ctx context.Context,
 			pretty, _ := json.MarshalIndent(result, "", "  ")
 			fmt.Println("🤖 JSON:\n", string(pretty))
 
-			assistantMsg := types.Message{Role: types.RoleAssistant, Content: string(pretty)}
 			userMsg := types.Message{Role: types.RoleUser, Content: userInput}
-			history = append(history, assistantMsg, userMsg)
+			assistantMsg := types.Message{Role: types.RoleAssistant, Content: string(pretty)}
+			history = append(history, userMsg, assistantMsg)
 
 			if sessionID != "" {
 				_ = memory.Append(sessionID, []types.Message{userMsg, assistantMsg})
@@ -134,9 +134,9 @@ func RunChat(ctx context.Context,
 				continue
 			}
 			ans := buf.String()
-			assistantMsg := types.Message{Role: types.RoleAssistant, Content: ans}
 			userMsg := types.Message{Role: types.RoleUser, Content: userInput}
-			history = append(history, assistantMsg, userMsg)
+			assistantMsg := types.Message{Role: types.RoleAssistant, Content: ans}
+			history = append(history, userMsg, assistantMsg)
 
 			if sessionID != "" {
 				_ = memory.Append(sessionID, []types.Message{userMsg, assistantMsg})
@@ -148,9 +148,9 @@ func RunChat(ctx context.Context,
 				continue
 			}
 			fmt.Println("🤖:", ans)
-			assistantMsg := types.Message{Role: types.RoleAssistant, Content: ans}
 			userMsg := types.Message{Role: types.RoleUser, Content: userInput}
-			history = append(history, assistantMsg, userMsg)
+			assistantMsg := types.Message{Role: types.RoleAssistant, Content: ans}
+			history = append(history, userMsg, assistantMsg)
 
 			if sessionID != "" {
 				_ = memory.Append(sessionID, []types.Message{userMsg, assistantMsg})

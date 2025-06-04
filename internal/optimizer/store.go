@@ -48,7 +48,7 @@ func (s *Store) List(template string) ([]Record, error) {
 			return nil
 		}
 		c := b.Cursor()
-		prefix := []byte(template + ":")
+		prefix := []byte(template + "/")
 		for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
 			var r Record
 			_ = json.Unmarshal(v, &r)
