@@ -60,10 +60,31 @@ gollm-mini -mode=chat -stream=false
 # schema is a local JSON schema file path
 gollm-mini -mode=chat -schema=person.schema.json -stream=false
 
+# Persist conversation history
+gollm-mini -mode=chat -sid=mychat
+
+# Template management
+gollm-mini -mode=template add summary summary.txt
+gollm-mini -mode=template list
+
 # HuggingFace local service (Python)
 # Start local HuggingFace service using uvicorn (recommended)
 cd gollm-mini/providers/huggingface
 uvicorn server:app --host 0.0.0.0 --port 8000 --reload
+```
+
+`person.schema.json` is a minimal JSON Schema used for structured mode:
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["name", "age"],
+  "properties": {
+    "name": {"type": "string"},
+    "age": {"type": "integer", "minimum": 0}
+  }
+}
 ```
 
 ---
@@ -75,14 +96,16 @@ uvicorn server:app --host 0.0.0.0 --port 8000 --reload
 Simple liveness check.
 
 ### 💬 **POST** `/chat`
+| Field | Type | Required | Description |
+| ----------- | ----------- | -------- | --------------------------- |
+| `messages` | `Message[]` | yes | chat history (role `system|user|assistant`) |
+| `provider` | string | no | default `ollama` |
+| `model` | string | no | default `llama3` |
+| `schema` | path | no | JSON schema for structured mode |
+| `session_id` | string | no | persist conversation history |
+| `stream` | bool | no | `true` for SSE streaming |
 
-| Field      | Type        | Required | Description                                   |
-| ---------- | ----------- | -------- | --------------------------------------------- |
-| `messages` | `Message[]` | ✔        | chat history (role `system\|user\|assistant`) |
-| `provider` | string      | –        | default `ollama`                              |
-| `model`    | string      | –        | default `llama3`                              |
-| `schema`   | path        | –        | JSON schema for structured mode               |
-| `stream`   | bool        | –        | `true` for SSE streaming                      |
+
 
 ---
 
@@ -101,6 +124,24 @@ Compare and optimize prompts or providers.
 ```
 
 Returns `scores`, `answers`, `latencies`, and selects the optimal variant automatically.
+
+---
+
+### 🗑️ **DELETE** `/cache/all`
+
+Clear the entire prompt cache.
+
+### 🗑️ **DELETE** `/cache/{key}`
+
+Remove a single cached entry by key.
+
+### 🗑️ **DELETE** `/cache/prefix/{prefix}`
+
+Remove all cached entries with the given key prefix.
+
+### 🧠 **DELETE** `/memory/{sid}`
+
+Delete stored conversation history for the session `sid`.
 
 ---
 
@@ -144,7 +185,11 @@ gollm-mini/
 │   ├── template/    # Prompt templating, variable validation
 │   ├── optimizer/   # Prompt & model optimization, scoring, storage
 │   ├── cache/       # BoltDB caching system
+│   ├── memory/      # Conversation session storage
 │   ├── monitor/     # Prometheus metrics integration
+│   ├── cli/         # Interactive chat logic
+│   ├── helper/      # Shared utilities
+│   ├── types/       # Common types
 │   └── server/      # REST/SSE API handlers
 └── cmd/gollm-mini/  # CLI & server entrypoints
 ```
@@ -154,7 +199,7 @@ gollm-mini/
 ## 🤝 Contributing
 
 1. Fork & Clone
-2. `make dev` to run tests and lint
+2. Run `gofmt` and `go vet ./...` before committing
 3. Submit a PR following [Conventional Commits](https://www.conventionalcommits.org/)
 
 We welcome new providers, improvements, examples, and documentation!
