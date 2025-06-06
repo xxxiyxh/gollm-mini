@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
+	"runtime/debug"
 	"strconv"
 	"time"
 
@@ -46,6 +48,16 @@ type ChatResponse struct {
 func Run(ctx context.Context, addr string) error {
 	r := gin.Default()
 
+	r.Use(func(c *gin.Context) {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("panic: %v\n%s", r, debug.Stack())
+				c.AbortWithStatus(http.StatusInternalServerError)
+			}
+		}()
+		c.Next()
+	})
+
 	tplStore, err := template.Open("templates.db")
 	if err != nil {
 		return err
@@ -85,7 +97,13 @@ func Run(ctx context.Context, addr string) error {
 		mem.DELETE("/:sid", handleMemoryDelete) // DELETE /memory/{sid}
 	}
 
-	srv := &http.Server{Addr: addr, Handler: r}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           r,
+		ReadHeaderTimeout: 15 * time.Second,
+		WriteTimeout:      300 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 
 	go func() { <-ctx.Done(); _ = srv.Shutdown(context.Background()) }()
 	return srv.ListenAndServe()
