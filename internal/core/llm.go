@@ -84,6 +84,9 @@ func (l *LLM) Generate(ctx context.Context, messages []types.Message) (string, t
 	//if err == nil {
 	//	cache.Put(cacheKey, cache.Value{Text: txt, Usage: usage})
 	//}
+	if c, ok := l.p.(interface{ Close() error }); ok {
+		_ = c.Close()
+	}
 	return txt, usage, err
 }
 
@@ -104,7 +107,7 @@ func (l *LLM) Stream(ctx context.Context, messages []types.Message, cb func(type
 
 	err = Retry(ctx, 3, 300*time.Millisecond, func() error {
 		if streamed {
-			usage, err = ps.Stream(ctx, messages, cb)
+			usage, err = ps.Stream(ctx, clipped, cb)
 			return err
 		}
 		var txt string
@@ -115,5 +118,8 @@ func (l *LLM) Stream(ctx context.Context, messages []types.Message, cb func(type
 		return err
 	})
 
+	if c, ok := l.p.(interface{ Close() error }); ok {
+		_ = c.Close()
+	}
 	return usage, err
 }
